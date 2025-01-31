@@ -8,11 +8,12 @@ import pytest
 import sklearn.datasets
 import torch
 from sklearn.base import check_is_fitted
-from sklearn.utils.estimator_checks import parametrize_with_checks
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.estimator_checks import parametrize_with_checks
 
 from tabpfn import TabPFNClassifier
+from tabpfn.preprocessing import PreprocessorConfig
 
 devices = ["cpu"]
 if torch.cuda.is_available():
@@ -96,6 +97,7 @@ def test_fit(
     predictions = model.predict(X)
     assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect!"
 
+
 # TODO(eddiebergman): Should probably run a larger suite with different configurations
 @parametrize_with_checks(
     [TabPFNClassifier(inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True})],
@@ -112,46 +114,108 @@ def test_sklearn_compatible_estimator(
 
     check(estimator)
 
+
 def test_balanced_probabilities(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     """Test that balance_probabilities=True works correctly."""
     X, y = X_y
-    
+
     model = TabPFNClassifier(
         balance_probabilities=True,
     )
-    
+
     model.fit(X, y)
     probabilities = model.predict_proba(X)
-    
+
     # Check that probabilities sum to 1 for each prediction
     assert np.allclose(probabilities.sum(axis=1), 1.0)
-    
+
     # Check that the mean probability for each class is roughly equal
     mean_probs = probabilities.mean(axis=0)
     expected_mean = 1.0 / len(np.unique(y))
-    assert np.allclose(mean_probs, expected_mean, rtol=0.1), \
-        "Class probabilities are not properly balanced"
+    assert np.allclose(
+        mean_probs,
+        expected_mean,
+        rtol=0.1,
+    ), "Class probabilities are not properly balanced"
+
 
 def test_classifier_in_pipeline(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     """Test that TabPFNClassifier works correctly within a sklearn pipeline."""
     X, y = X_y
-    
+
     # Create a simple preprocessing pipeline
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('classifier', TabPFNClassifier(
-            n_estimators=2  # Fewer estimators for faster testing
-        ))
-    ])
-    
+    pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "classifier",
+                TabPFNClassifier(
+                    n_estimators=2,  # Fewer estimators for faster testing
+                ),
+            ),
+        ],
+    )
+
     pipeline.fit(X, y)
     probabilities = pipeline.predict_proba(X)
-    
+
     # Check that probabilities sum to 1 for each prediction
     assert np.allclose(probabilities.sum(axis=1), 1.0)
-    
+
     # Check that the mean probability for each class is roughly equal
     mean_probs = probabilities.mean(axis=0)
     expected_mean = 1.0 / len(np.unique(y))
-    assert np.allclose(mean_probs, expected_mean, rtol=0.1), \
-        "Class probabilities are not properly balanced in pipeline"
+    assert np.allclose(
+        mean_probs,
+        expected_mean,
+        rtol=0.1,
+    ), "Class probabilities are not properly balanced in pipeline"
+
+
+def test_dict_vs_object_preprocessor_config(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    """Test that dict configs behave identically to PreprocessorConfig objects."""
+    X, y = X_y
+
+    # Define same config as both dict and object
+    dict_config = {
+        "name": "quantile_uni_coarse",
+        "append_original": False,  # changed from default
+        "categorical_name": "ordinal_very_common_categories_shuffled",
+        "global_transformer_name": "svd",
+        "subsample_features": -1,
+    }
+
+    object_config = PreprocessorConfig(
+        name="quantile_uni_coarse",
+        append_original=False,  # changed from default
+        categorical_name="ordinal_very_common_categories_shuffled",
+        global_transformer_name="svd",
+        subsample_features=-1,
+    )
+
+    # Create two models with same random state
+    model_dict = TabPFNClassifier(
+        inference_config={"PREPROCESS_TRANSFORMS": [dict_config]},
+        n_estimators=2,
+        random_state=42,
+    )
+
+    model_obj = TabPFNClassifier(
+        inference_config={"PREPROCESS_TRANSFORMS": [object_config]},
+        n_estimators=2,
+        random_state=42,
+    )
+
+    # Fit both models
+    model_dict.fit(X, y)
+    model_obj.fit(X, y)
+
+    # Compare predictions
+    pred_dict = model_dict.predict(X)
+    pred_obj = model_obj.predict(X)
+    np.testing.assert_array_equal(pred_dict, pred_obj)
+
+    # Compare probabilities
+    prob_dict = model_dict.predict_proba(X)
+    prob_obj = model_obj.predict_proba(X)
+    np.testing.assert_array_almost_equal(prob_dict, prob_obj)
