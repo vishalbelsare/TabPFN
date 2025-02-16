@@ -33,10 +33,10 @@ from tabpfn.base import (
     determine_precision,
     initialize_tabpfn_model,
 )
+from tabpfn.config import ModelInterfaceConfig
 from tabpfn.constants import (
     PROBABILITY_EPSILON_ROUND_ZERO,
     SKLEARN_16_DECIMAL_PRECISION,
-    ModelInterfaceConfig,
     XType,
     YType,
 )
@@ -47,6 +47,7 @@ from tabpfn.preprocessing import (
 )
 from tabpfn.utils import (
     _fix_dtypes,
+    _get_embeddings,
     _get_ordinal_encoder,
     infer_categorical_features,
     infer_device_and_type,
@@ -181,9 +182,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 Whether to balance the probabilities based on the class distribution
                 in the training data. This can help to improve predictive performance
                 when the classes are highly imbalanced and the metric of interest is
-                insensitive to class imbalance (e.g., balanced accuracy, balanced log loss,
-                roc-auc macro ovo, etc.). This is only applied when predicting during a
-                post-processing step.
+                insensitive to class imbalance (e.g., balanced accuracy, balanced log
+                loss, roc-auc macro ovo, etc.). This is only applied when predicting
+                during a post-processing step.
 
             average_before_softmax:
                 Only used if `n_estimators > 1`. Whether to average the predictions of
@@ -443,7 +444,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 "classes supported by TabPFN. Consider using a strategy to reduce "
                 "the number of classes. For code see "
                 "https://github.com/PriorLabs/tabpfn-extensions/blob/main/src/"
-                "tabpfn_extensions/many_class/many_class_classifier.py"
+                "tabpfn_extensions/many_class/many_class_classifier.py",
             )
 
         # Will convert specified categorical indices to category dtype, as well
@@ -576,3 +577,18 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # Normalize to guarantee proba sum to 1, required due to precision issues and
         # going from torch to numpy
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
+
+    def get_embeddings(
+        self,
+        X: XType,
+        data_source: Literal["train", "test"] = "test",
+    ) -> np.ndarray:
+        """Get the embeddings for the input data `X`.
+
+        Parameters:
+            X (XType): The input data.
+            data_source str: Extract either the train or test embeddings
+        Returns:
+            np.ndarray: The computed embeddings for each fitted estimator.
+        """
+        return _get_embeddings(self, X, data_source)
